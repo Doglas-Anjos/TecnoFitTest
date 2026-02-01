@@ -552,20 +552,30 @@ curl -X POST http://localhost:9502/account/00000000-0000-0000-0000-000000000005/
                     <span id="result-negativeBalance"></span>
                 </div>
 
-                <!-- Test 8: Invalid PIX Key -->
+                <!-- Test 8: Security/Vulnerability Test -->
                 <div class="test-card">
-                    <h3>8. Invalid PIX Key</h3>
-                    <p>Attempt to withdraw using a PIX key that doesn't belong to the account. Should return 422 error.</p>
-                    <div class="curl-box"># Account: 00000000-0000-0000-0000-000000000001
-# Using wrong PIX key (not registered to this account)
+                    <h3>8. Security/Vulnerability Test</h3>
+                    <p>Attempt injection attacks (SQL, XSS, Command) via JSON and URL parameters. API should sanitize and reject malicious payloads.</p>
+                    <div class="curl-box"># Test SQL Injection, XSS, Command Injection
 
-curl -X POST http://localhost:9502/account/00000000-0000-0000-0000-000000000001/balance/withdraw \
-  -H "Content-Type: application/json" \
-  -d '{"method":"PIX","pix":{"type":"email","key":"wrong@email.com"},"amount":100,"schedule":null}'
+# SQL Injection in PIX key
+curl -X POST .../withdraw \
+  -d '{"pix":{"key":"test'; DROP TABLE account;--"}}'
 
-# Expected: 422 Invalid PIX Key</div>
-                    <button class="btn btn-primary" onclick="runTest('invalidPixKey')">Run Test</button>
-                    <span id="result-invalidPixKey"></span>
+# XSS in PIX key
+curl -X POST .../withdraw \
+  -d '{"pix":{"key":"<script>alert('XSS')</script>"}}'
+
+# Command Injection
+curl -X POST .../withdraw \
+  -d '{"pix":{"key":"test@test.com; rm -rf /"}}'
+
+# Path Traversal in account ID
+curl -X POST .../../../etc/passwd/balance/withdraw
+
+# Expected: 400/422 with safe error handling</div>
+                    <button class="btn btn-primary" onclick="runTest('securityTest')">Run Test</button>
+                    <span id="result-securityTest"></span>
                 </div>
             </div>
 

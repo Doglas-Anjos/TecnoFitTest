@@ -155,7 +155,8 @@ app.get('/api/config', (req, res) => {
         apiHost: API_HOST,
         apiPort: API_PORT,
         dbHost: DB_CONFIG.host,
-        dbDatabase: DB_CONFIG.database
+        dbDatabase: DB_CONFIG.database,
+        defaultPixKey: process.env.DEFAULT_PIX_KEY || 'withdraw@tecnofit.com'
     });
 });
 

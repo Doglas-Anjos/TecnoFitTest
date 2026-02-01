@@ -6,6 +6,7 @@ let rpsChart = null;
 let stressTestRunning = false;
 let stressTestAbort = false;
 let stressRequestCounter = 0;
+let defaultPixKey = 'withdraw@tecnofit.com'; // Default, will be loaded from config
 
 // Test account IDs (must exist in database)
 const TEST_ACCOUNTS = {
@@ -32,6 +33,11 @@ async function loadConfig() {
         
         document.getElementById('apiHost').value = config.apiHost || '';
         document.getElementById('apiPort').value = config.apiPort || '';
+        
+        // Load default PIX key from config
+        if (config.defaultPixKey) {
+            defaultPixKey = config.defaultPixKey;
+        }
         
         console.log('Loaded API config:', config);
     } catch (error) {
@@ -478,16 +484,25 @@ function log(logId, message, type = 'info') {
     logEl.insertBefore(entry, logEl.firstChild);
 }
 
-async function sendWithdrawRequest(accountId, amount, schedule = null, pixKey = null) {
+async function sendWithdrawRequest(accountId, amount, schedule = null, pixKeyOrData = null) {
     const start = Date.now();
-    // Use provided PIX key or default test email
-    const effectivePixKey = pixKey || 'withdraw@tecnofit.com';
+    
+    // Handle different PIX data formats
+    let pixData;
+    if (pixKeyOrData && typeof pixKeyOrData === 'object') {
+        // Full PIX data object provided (for security tests)
+        pixData = pixKeyOrData;
+    } else {
+        // Simple PIX key string (or null/undefined for default)
+        const effectivePixKey = pixKeyOrData || defaultPixKey;
+        pixData = { type: 'email', key: effectivePixKey };
+    }
 
-    console.log(`[sendWithdrawRequest] accountId: ${accountId}, using pixKey: ${effectivePixKey}`);
+    console.log(`[sendWithdrawRequest] accountId: ${accountId}, pixData:`, pixData);
 
     const requestBody = {
         method: 'PIX',
-        pix: { type: 'email', key: effectivePixKey },
+        pix: pixData,
         amount: amount,
         schedule: schedule,
         _apiConfig: getApiConfig()
@@ -556,6 +571,9 @@ async function runTest(testName) {
                 break;
             case 'invalidAmount':
                 result = await testInvalidAmount();
+                break;
+            case 'securityTest':
+                result = await testSecurityVulnerabilities();
                 break;
         }
 
@@ -780,6 +798,126 @@ async function testInvalidAmount() {
     };
 }
 
+async function testSecurityVulnerabilities() {
+    const accountId = TEST_ACCOUNTS.normal;
+
+    // Reset account before test
+    log('raceLog', '  Resetting account...', 'info');
+    await resetAccountBeforeTest(accountId);
+
+    const maliciousPayloads = [
+        {
+            name: 'SQL Injection in PIX key',
+            payload: {
+                method: 'PIX',
+                pix: {
+                    type: 'email',
+                    key: "test'; DROP TABLE account;--"
+                },
+                amount: 100,
+                schedule: null
+            }
+        },
+        {
+            name: 'XSS in PIX key',
+            payload: {
+                method: 'PIX',
+                pix: {
+                    type: 'email',
+                    key: "<script>alert('XSS')</script>"
+                },
+                amount: 100,
+                schedule: null
+            }
+        },
+        {
+            name: 'Command Injection in PIX key',
+            payload: {
+                method: 'PIX',
+                pix: {
+                    type: 'email',
+                    key: "test@test.com; rm -rf /"
+                },
+                amount: 100,
+                schedule: null
+            }
+        },
+        {
+            name: 'Path Traversal in account ID',
+            payload: {
+                method: 'PIX',
+                pix: {
+                    type: 'email',
+                    key: "test@test.com"
+                },
+                amount: 100,
+                schedule: null
+            },
+            customAccountId: '../../../etc/passwd'
+        },
+        {
+            name: 'NoSQL Injection',
+            payload: {
+                method: 'PIX',
+                pix: {
+                    type: 'email',
+                    key: { "$ne": null }
+                },
+                amount: 100,
+                schedule: null
+            }
+        },
+        {
+            name: 'Very large amount (overflow)',
+            payload: {
+                method: 'PIX',
+                pix: {
+                    type: 'email',
+                    key: "test@test.com"
+                },
+                amount: 999999999999999999999,
+                schedule: null
+            }
+        }
+    ];
+
+    const results = [];
+    let allSafe = true;
+
+    for (const test of maliciousPayloads) {
+        const targetAccountId = test.customAccountId || accountId;
+        log('raceLog', `  Testing: ${test.name}...`, 'info');
+        
+        const result = await sendWithdrawRequest(targetAccountId, test.payload.amount, null, test.payload.pix);
+        results.push({ ...result, testName: test.name });
+        
+        log('raceLog', `    Response: ${result.status} - ${result.data?.message || 'OK'}`, 
+            result.status >= 400 ? 'info' : 'warning');
+
+        // Expected: API should reject with 400/422 or handle gracefully
+        // NOT expected: 200 (successful withdrawal), 500 (crash)
+        if (result.status === 200) {
+            log('raceLog', `    ⚠️ WARNING: Malicious payload was accepted!`, 'error');
+            allSafe = false;
+        } else if (result.status === 500) {
+            log('raceLog', `    ⚠️ WARNING: Server error (possible crash)!`, 'error');
+            allSafe = false;
+        }
+    }
+
+    // Show detailed response
+    showRaceResponseDetails(results, 'Security/Vulnerability Tests');
+
+    const passed = allSafe;
+    return {
+        passed,
+        message: passed
+            ? `All malicious payloads safely rejected`
+            : `SECURITY RISK! Some payloads were not properly handled`
+    };
+}
+
+
 
 // Fetch multiple accounts for stress testing
 async function fetchMultipleAccounts(count) {
@@ -793,7 +931,7 @@ async function fetchMultipleAccounts(count) {
                 id: account.id,
                 name: account.name,
                 balance: account.balance,
-                pixKey: 'withdraw@tecnofit.com'
+                pixKey: defaultPixKey
             }));
         }
     } catch (error) {

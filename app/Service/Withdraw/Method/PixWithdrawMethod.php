@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Service\Withdraw\Method;
 
 use App\DTO\WithdrawRequestDTO;
-use App\Exception\BusinessException;
 use App\Model\Account;
 use App\Model\AccountWithdraw;
 use App\Model\AccountWithdrawPix;
+use App\Service\Pix\PixKeyValidator;
 use Psr\Log\LoggerInterface;
 use Ramsey\Uuid\Uuid;
 
@@ -16,10 +16,9 @@ class PixWithdrawMethod extends AbstractWithdrawMethod
 {
     public const METHOD_NAME = 'PIX';
 
-    private const VALID_PIX_TYPES = ['email', 'cpf', 'cnpj', 'phone', 'random'];
-
     public function __construct(
-        protected LoggerInterface $logger
+        protected LoggerInterface $logger,
+        protected PixKeyValidator $pixKeyValidator
     ) {
         parent::__construct($logger);
     }
@@ -31,18 +30,7 @@ class PixWithdrawMethod extends AbstractWithdrawMethod
 
     public function validate(WithdrawRequestDTO $request): void
     {
-        if (!in_array($request->pix->type, self::VALID_PIX_TYPES, true)) {
-            throw new BusinessException(
-                sprintf('Tipo de chave PIX inválido: %s', $request->pix->type),
-                422
-            );
-        }
-
-        if ($request->pix->type === 'email') {
-            if (!filter_var($request->pix->key, FILTER_VALIDATE_EMAIL)) {
-                throw new BusinessException('Chave PIX deve ser um email válido', 422);
-            }
-        }
+        $this->pixKeyValidator->validate($request->pix->type, $request->pix->key);
     }
 
     public function createMethodDetails(AccountWithdraw $withdraw, WithdrawRequestDTO $request): void

@@ -23,7 +23,8 @@ class WithdrawRequest extends FormRequest
             'method' => 'required|string|in:PIX',
             'pix' => 'required|array',
             'pix.type' => "required|string|in:{$allowedPixTypes}",
-            'pix.key' => 'required|string|email',
+            // Max 77 chars = email limit (largest PIX key type per BACEN spec)
+            'pix.key' => 'required|string|max:77',
             'amount' => 'required|numeric|gt:0',
             'schedule' => 'nullable|date|after:now',
         ];
@@ -38,7 +39,7 @@ class WithdrawRequest extends FormRequest
             'pix.type.required' => 'O tipo de chave PIX é obrigatório.',
             'pix.type.in' => 'Tipo de chave PIX inválido. Apenas email é suportado.',
             'pix.key.required' => 'A chave PIX é obrigatória.',
-            'pix.key.email' => 'A chave PIX deve ser um email válido.',
+            'pix.key.max' => 'A chave PIX deve ter no máximo 77 caracteres.',
             'amount.required' => 'O valor do saque é obrigatório.',
             'amount.numeric' => 'O valor do saque deve ser numérico.',
             'amount.gt' => 'O valor do saque deve ser maior que zero.',
