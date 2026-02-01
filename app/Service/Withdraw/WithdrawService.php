@@ -9,6 +9,7 @@ use App\Exception\AccountLockedException;
 use App\Exception\AccountNotFoundException;
 use App\Exception\InsufficientBalanceException;
 use App\Exception\InvalidScheduleException;
+use App\Middleware\RequestTracingMiddleware;
 use App\Model\Account;
 use App\Model\AccountWithdraw;
 use App\Service\Notification\NotificationService;
@@ -106,19 +107,21 @@ class WithdrawService
      */
     public function processScheduledWithdraw(AccountWithdraw $withdraw): bool
     {
-        $this->logger->info(sprintf(
-            'Processing scheduled withdrawal #%s',
-            $withdraw->id
-        ));
+        $this->logger->info('Processing scheduled withdrawal', [
+            'withdraw_id' => $withdraw->id,
+            'account_id' => $withdraw->account_id,
+            'amount' => (float) $withdraw->amount,
+            'scheduled_for' => $withdraw->scheduled_for?->toDateTimeString(),
+        ]);
 
         $account = $withdraw->account;
 
         // Check if account is locked
         if ($account->isLocked()) {
-            $this->logger->warning(sprintf(
-                'Scheduled withdrawal #%s skipped: account is locked',
-                $withdraw->id
-            ));
+            $this->logger->warning('Scheduled withdrawal skipped: account is locked', [
+                'withdraw_id' => $withdraw->id,
+                'account_id' => $account->id,
+            ]);
             return false;
         }
 
@@ -138,11 +141,12 @@ class WithdrawService
                     $balance
                 );
 
-                $this->logger->warning(sprintf(
-                    'Scheduled withdrawal #%s processed with failure: %s',
-                    $withdraw->id,
-                    $errorMessage
-                ));
+                $this->logger->warning('Scheduled withdrawal failed: insufficient balance', [
+                    'withdraw_id' => $withdraw->id,
+                    'account_id' => $account->id,
+                    'requested_amount' => $amount,
+                    'available_balance' => $balance,
+                ]);
 
                 $withdraw->markAsProcessedWithError($errorMessage);
 
@@ -161,10 +165,11 @@ class WithdrawService
 
                 if ($success) {
                     $withdraw->markAsDone();
-                    $this->logger->info(sprintf(
-                        'Scheduled withdrawal #%s completed successfully',
-                        $withdraw->id
-                    ));
+                    $this->logger->info('Scheduled withdrawal completed successfully', [
+                        'withdraw_id' => $withdraw->id,
+                        'account_id' => $account->id,
+                        'amount' => (float) $withdraw->amount,
+                    ]);
                 }
 
                 return $success;
@@ -177,11 +182,14 @@ class WithdrawService
 
             return $success;
         } catch (\Throwable $e) {
-            $this->logger->error(sprintf(
-                'Error processing scheduled withdrawal #%s: %s',
-                $withdraw->id,
-                $e->getMessage()
-            ));
+            $this->logger->error('Error processing scheduled withdrawal', [
+                'withdraw_id' => $withdraw->id,
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
 
             // For other errors, mark as processed with error
             $withdraw->markAsProcessedWithError($e->getMessage());
@@ -256,6 +264,8 @@ class WithdrawService
 
     private function createWithdrawRecord(WithdrawRequestDTO $request): AccountWithdraw
     {
+        $correlationId = RequestTracingMiddleware::getCorrelationId();
+
         $withdraw = AccountWithdraw::create([
             'id' => Uuid::uuid7()->toString(),
             'account_id' => $request->accountId,
@@ -268,13 +278,15 @@ class WithdrawService
             'error_reason' => null,
         ]);
 
-        $this->logger->info(sprintf(
-            'Created withdrawal record #%s for account #%s, amount: %.2f, scheduled: %s',
-            $withdraw->id,
-            $request->accountId,
-            $request->amount,
-            $request->isScheduled() ? $request->schedule->toDateTimeString() : 'immediate'
-        ));
+        $this->logger->info('Withdrawal record created', [
+            'correlation_id' => $correlationId,
+            'withdraw_id' => $withdraw->id,
+            'account_id' => $request->accountId,
+            'method' => $request->method,
+            'amount' => $request->amount,
+            'scheduled' => $request->isScheduled(),
+            'scheduled_for' => $request->isScheduled() ? $request->schedule->toDateTimeString() : null,
+        ]);
 
         return $withdraw;
     }
@@ -293,17 +305,21 @@ class WithdrawService
 
             if ($success) {
                 $withdraw->markAsDone();
-                $this->logger->info(sprintf(
-                    'Immediate withdrawal #%s completed successfully',
-                    $withdraw->id
-                ));
+                $this->logger->info('Immediate withdrawal completed successfully', [
+                    'correlation_id' => RequestTracingMiddleware::getCorrelationId(),
+                    'withdraw_id' => $withdraw->id,
+                    'account_id' => $account->id,
+                    'amount' => (float) $withdraw->amount,
+                ]);
             }
         } catch (\Throwable $e) {
-            $this->logger->error(sprintf(
-                'Error processing immediate withdrawal #%s: %s',
-                $withdraw->id,
-                $e->getMessage()
-            ));
+            $this->logger->error('Error processing immediate withdrawal', [
+                'correlation_id' => RequestTracingMiddleware::getCorrelationId(),
+                'withdraw_id' => $withdraw->id,
+                'account_id' => $account->id,
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+            ]);
 
             $withdraw->markAsError($e->getMessage());
 
@@ -313,17 +329,19 @@ class WithdrawService
 
     private function deductBalance(Account $account, float $amount): void
     {
-        $newBalance = (float) $account->balance - $amount;
+        $previousBalance = (float) $account->balance;
+        $newBalance = $previousBalance - $amount;
 
         $account->balance = $newBalance;
         $account->save();
 
-        $this->logger->info(sprintf(
-            'Deducted %.2f from account #%s, new balance: %.2f',
-            $amount,
-            $account->id,
-            $newBalance
-        ));
+        $this->logger->info('Balance deducted from account', [
+            'correlation_id' => RequestTracingMiddleware::getCorrelationId(),
+            'account_id' => $account->id,
+            'amount_deducted' => $amount,
+            'previous_balance' => $previousBalance,
+            'new_balance' => $newBalance,
+        ]);
     }
 
     private function sendNotification(
@@ -342,19 +360,19 @@ class WithdrawService
     {
         $account->lock();
 
-        $this->logger->info(sprintf(
-            'Account #%s locked for balance operation',
-            $account->id
-        ));
+        $this->logger->debug('Account locked for balance operation', [
+            'correlation_id' => RequestTracingMiddleware::getCorrelationId(),
+            'account_id' => $account->id,
+        ]);
     }
 
     private function unlockAccount(Account $account): void
     {
         $account->unlock();
 
-        $this->logger->info(sprintf(
-            'Account #%s unlocked after balance operation',
-            $account->id
-        ));
+        $this->logger->debug('Account unlocked after balance operation', [
+            'correlation_id' => RequestTracingMiddleware::getCorrelationId(),
+            'account_id' => $account->id,
+        ]);
     }
 }

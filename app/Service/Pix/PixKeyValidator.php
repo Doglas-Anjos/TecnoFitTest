@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Service\Pix;
 
 use App\Exception\BusinessException;
+use Psr\Log\LoggerInterface;
 
 /**
  * Validates PIX keys according to BACEN (Central Bank of Brazil) specifications.
@@ -27,9 +28,16 @@ class PixKeyValidator
     private const MAX_LENGTH_PHONE = 14;
     private const MAX_LENGTH_RANDOM = 36;
 
+    public function __construct(
+        private LoggerInterface $logger
+    ) {
+    }
+
     public function validate(string $type, string $key): void
     {
         if (!in_array($type, self::VALID_PIX_TYPES, true)) {
+            $this->logger->warning('Invalid PIX type', ['type' => $type]);
+
             throw new BusinessException(
                 sprintf('Tipo de chave PIX inválido: %s. Tipos permitidos: %s', $type, implode(', ', self::VALID_PIX_TYPES)),
                 422

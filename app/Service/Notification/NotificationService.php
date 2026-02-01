@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Service\Notification;
 
+use App\Middleware\RequestTracingMiddleware;
 use App\Model\AccountWithdraw;
 use Hyperf\Contract\ConfigInterface;
+use Hyperf\Logger\LoggerFactory;
 use Psr\Log\LoggerInterface;
 use Swoole\Coroutine;
 use Symfony\Component\Mailer\Mailer;
@@ -31,9 +33,20 @@ class NotificationService
         // Pre-build email data before spawning coroutine
         $emailData = $this->prepareEmailData($withdraw, $recipientEmail);
         $withdrawId = $withdraw->id;
+        $correlationId = RequestTracingMiddleware::getCorrelationId();
+
+        $this->logger->info('Queuing async email notification', [
+            'correlation_id' => $correlationId,
+            'withdraw_id' => $withdrawId,
+            'recipient' => $recipientEmail,
+        ]);
 
         // Spawn a new coroutine for email sending (truly non-blocking)
-        \Swoole\Coroutine::create(function () use ($emailData, $recipientEmail, $withdrawId) {
+        \Swoole\Coroutine::create(function () use ($emailData, $recipientEmail, $withdrawId, $correlationId) {
+            // Get a fresh logger instance inside the coroutine
+            $logger = \Hyperf\Context\ApplicationContext::getContainer()->get(LoggerFactory::class)->get('email');
+            $startTime = microtime(true);
+
             try {
                 // Create a fresh mailer instance in the coroutine
                 $dsn = sprintf(
@@ -56,10 +69,25 @@ class NotificationService
 
                 $mailer->send($email);
 
-                // Log success (can't use injected logger in new coroutine)
-                echo "[EMAIL] Sent to {$recipientEmail} for withdrawal #{$withdrawId}\n";
+                $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+                $logger->info('Email sent successfully', [
+                    'correlation_id' => $correlationId,
+                    'withdraw_id' => $withdrawId,
+                    'recipient' => $recipientEmail,
+                    'duration_ms' => $duration,
+                ]);
             } catch (\Throwable $e) {
-                echo "[EMAIL ERROR] Failed to send to {$recipientEmail}: {$e->getMessage()}\n";
+                $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+                $logger->error('Failed to send email', [
+                    'correlation_id' => $correlationId,
+                    'withdraw_id' => $withdrawId,
+                    'recipient' => $recipientEmail,
+                    'duration_ms' => $duration,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ]);
             }
         });
     }
@@ -140,25 +168,35 @@ Este é um email automático. Por favor, não responda.
      */
     public function sendWithdrawConfirmation(AccountWithdraw $withdraw, string $recipientEmail): bool
     {
+        $correlationId = RequestTracingMiddleware::getCorrelationId();
+        $startTime = microtime(true);
+
         try {
             $email = $this->buildWithdrawEmail($withdraw, $recipientEmail);
 
             $this->mailer->send($email);
 
-            $this->logger->info(sprintf(
-                'Withdrawal confirmation email sent to %s for withdrawal #%s',
-                $recipientEmail,
-                $withdraw->id
-            ));
+            $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+            $this->logger->info('Email sent successfully (sync)', [
+                'correlation_id' => $correlationId,
+                'withdraw_id' => $withdraw->id,
+                'recipient' => $recipientEmail,
+                'duration_ms' => $duration,
+            ]);
 
             return true;
         } catch (\Throwable $e) {
-            $this->logger->error(sprintf(
-                'Failed to send withdrawal confirmation email to %s for withdrawal #%s: %s',
-                $recipientEmail,
-                $withdraw->id,
-                $e->getMessage()
-            ));
+            $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+            $this->logger->error('Failed to send email (sync)', [
+                'correlation_id' => $correlationId,
+                'withdraw_id' => $withdraw->id,
+                'recipient' => $recipientEmail,
+                'duration_ms' => $duration,
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+            ]);
 
             return false;
         }
