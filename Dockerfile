@@ -20,6 +20,8 @@ ENV TIMEZONE=${timezone:-"Asia/Shanghai"} \
 
 # update
 RUN set -ex \
+    # install curl for health checks
+    && apk add --no-cache curl \
     # show php version and extensions
     && php -v \
     && php -m \

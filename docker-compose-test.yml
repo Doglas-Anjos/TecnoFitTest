@@ -1,38 +1,54 @@
+version: '3.8'
+
+# Single Instance Test Environment
+
 services:
+  # ===========================================
+  # Hyperf API
+  # ===========================================
   hyperf-test:
     build:
       context: .
       dockerfile: ./docker/hyperf/Dockerfile
     container_name: ${CONTAINER_HYPERF:-hyperf}-test
+    working_dir: /data/project
     volumes:
       - ./:/data/project
     ports:
       - "${HYPERF_TEST_PORT:-9502}:9501"
-    working_dir: /data/project
+    environment:
+      - INSTANCE_ID=single
+      - CRON_ENABLED=true
+      - APP_NAME=${APP_NAME:-TecnoFit}
+      - APP_ENV=testing
+      - APP_TIMEZONE=${APP_TIMEZONE:-America/Sao_Paulo}
+      - SCAN_CACHEABLE=false
+      - DB_DRIVER=${DB_DRIVER:-mysql}
+      - DB_HOST=mysql-test
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_DATABASE=${DB_DATABASE:-hyperf}_test
+      - DB_USERNAME=${DB_USERNAME:-hyperf}
+      - DB_PASSWORD=${DB_PASSWORD:-hyperf}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAIL_HOST=${MAIL_HOST:-sandbox.smtp.mailtrap.io}
+      - MAIL_PORT=${MAIL_PORT:-2525}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_FROM_ADDRESS=${MAIL_FROM_ADDRESS:-noreply@tecnofit.com}
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+    networks:
+      - ${DOCKER_NETWORK:-tecnofit-network}-test
     privileged: true
     user: root
     stdin_open: true
     tty: true
-    networks:
-      - ${DOCKER_NETWORK:-tecnofit-network}-test
-    depends_on:
-      mysql-test:
-        condition: service_healthy
-    environment:
-      - APP_ENV=testing
-      - SCAN_CACHEABLE=false
-      - DB_HOST=mysql-test
-      - DB_PORT=3306
-      - DB_DATABASE=${DB_DATABASE:-hyperf}_test
-      - DB_USERNAME=${DB_USERNAME:-hyperf}
-      - DB_PASSWORD=${DB_PASSWORD:-hyperf}
-      - MAIL_HOST=sandbox.smtp.mailtrap.io
-      - MAIL_PORT=2525
-      - MAIL_USERNAME=91ce3a2bcf0fe3
-      - MAIL_PASSWORD=014d2184fd1aaf
-      - MAIL_ENCRYPTION=
     command: ["php", "bin/hyperf.php", "start"]
 
+  # ===========================================
+  # Test Dashboard
+  # ===========================================
   test-dashboard:
     build:
       context: ./docker/test-dashboard
@@ -40,13 +56,11 @@ services:
     container_name: test-dashboard
     ports:
       - "${TEST_DASHBOARD_PORT:-3000}:3000"
-    networks:
-      - ${DOCKER_NETWORK:-tecnofit-network}-test
     environment:
       - API_HOST=hyperf-test
       - API_PORT=9501
       - DB_HOST=mysql-test
-      - DB_PORT=3306
+      - DB_PORT=${DB_PORT:-3306}
       - DB_DATABASE=${DB_DATABASE:-hyperf}_test
       - DB_USERNAME=${DB_USERNAME:-hyperf}
       - DB_PASSWORD=${DB_PASSWORD:-hyperf}
@@ -56,31 +70,40 @@ services:
         condition: service_healthy
       hyperf-test:
         condition: service_started
+    networks:
+      - ${DOCKER_NETWORK:-tecnofit-network}-test
 
+  # ===========================================
+  # Database
+  # ===========================================
   mysql-test:
     build:
       context: ./docker/mysql
       dockerfile: Dockerfile
     container_name: ${CONTAINER_MYSQL:-mysql}-test
-    volumes:
-      - mysql-test-data:/var/lib/mysql
-      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "${DB_TEST_PORT:-3308}:3306"
-    networks:
-      - ${DOCKER_NETWORK:-tecnofit-network}-test
     environment:
       - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-root}
       - MYSQL_DATABASE=${DB_DATABASE:-hyperf}_test
       - MYSQL_USER=${DB_USERNAME:-hyperf}
       - MYSQL_PASSWORD=${DB_PASSWORD:-hyperf}
+      - TZ=${APP_TIMEZONE:-America/Sao_Paulo}
+    ports:
+      - "${DB_TEST_PORT:-3308}:3306"
+    volumes:
+      - mysql-test-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - ${DOCKER_NETWORK:-tecnofit-network}-test
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-root}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u${DB_USERNAME:-hyperf}", "-p${DB_PASSWORD:-hyperf}"]
       interval: 10s
       timeout: 5s
       start_period: 30s
       retries: 5
 
+  # ===========================================
+  # Mailhog (Email Testing)
+  # ===========================================
   mailhog-test:
     build:
       context: ./docker/mailhog

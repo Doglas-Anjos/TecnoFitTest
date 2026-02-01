@@ -28,7 +28,13 @@ class ProcessScheduledWithdrawsTask
 
     public function execute(): void
     {
-        $this->logger->info('[CRON] Starting scheduled withdrawals processing');
+        // Skip if cron is disabled for this instance (API-only containers)
+        if (!filter_var(getenv('CRON_ENABLED') ?: 'true', FILTER_VALIDATE_BOOLEAN)) {
+            return;
+        }
+
+        $instanceId = getenv('INSTANCE_ID') ?: 'unknown';
+        $this->logger->info("[CRON] Starting scheduled withdrawals processing (instance: {$instanceId})");
 
         $pendingWithdrawals = $this->withdrawService->getPendingScheduledWithdrawals();
 

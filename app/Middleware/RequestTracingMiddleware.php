@@ -46,8 +46,11 @@ class RequestTracingMiddleware implements MiddlewareInterface
             // Log response
             $this->logResponse($request, $response, $correlationId);
 
-            // Add correlation ID to response headers
-            return $response->withHeader(self::CORRELATION_ID_HEADER, $correlationId);
+            // Add tracing headers to response
+            $instanceId = getenv('INSTANCE_ID') ?: 'unknown';
+            return $response
+                ->withHeader(self::CORRELATION_ID_HEADER, $correlationId)
+                ->withHeader('X-Instance-ID', $instanceId);
         } catch (\Throwable $e) {
             // Log error
             $this->logError($request, $e, $correlationId);
