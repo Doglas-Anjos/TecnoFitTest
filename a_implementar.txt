@@ -1,0 +1,7 @@
+verificar uuid -> fazer a explicação plausivel do porque da utilização do uuid
+verificar a estrutura do banco para desempenho 
+criar um semaforo para bloquear dupla entrada e dupla retirada
+verificar a necessidade de api gatway
+fazer um teste em um diretório que vai fazer a carga e o teste de escalabilidade
+criar um mini dashboard nesse teste que será feito verificando tempo de resposta e a escalada.
+criação de testes unitários para verificação dos endpoints

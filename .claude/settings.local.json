@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(findstr:*)",
+      "Bash(for i in 1 2 3)",
+      "Bash(do curl -s -X POST \"http://localhost:9502/account/00000000-0000-0000-0000-000000000001/balance/withdraw\" -H \"Content-Type: application/json\" -d '{\"\"method\"\":\"\"PIX\"\",\"\"amount\"\":5,\"\"pix\"\":{\"\"type\"\":\"\"email\"\",\"\"key\"\":\"\"test@email.com\"\"}}')",
+      "Bash(done)",
+      "Bash(do echo \"Request $i:\")",
+      "Bash(timeout 30 bash -c 'while ! curl -s http://localhost:9502/health > /dev/null 2>&1; do echo \"\"Waiting for server...\"\"; sleep 2; done')",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do curl -s -X POST \"http://localhost:9502/account/00000000-0000-0000-0000-000000000001/balance/withdraw\" -H \"Content-Type: application/json\" -d '{\"\"method\"\":\"\"PIX\"\",\"\"amount\"\":5,\"\"pix\"\":{\"\"type\"\":\"\"email\"\",\"\"key\"\":\"\"test@email.com\"\"}}' -o /dev/null -w \"Request $i: %{time_total}s\\\\n\")",
+      "Bash(do curl -s \"http://localhost:9502/account/00000000-0000-0000-0000-000000000001/balance/withdraw\" -X POST -H \"Content-Type: application/json\" -d '{\"\"method\"\":\"\"PIX\"\",\"\"amount\"\":1,\"\"pix\"\":{\"\"type\"\":\"\"email\"\",\"\"key\"\":\"\"test@test.com\"\"}}' -w \"  Time: %{time_total}s\\\\n\" -o /dev/null)"
+    ]
+  }
+}
