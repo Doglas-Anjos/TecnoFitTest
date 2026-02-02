@@ -393,38 +393,77 @@ docker-compose -f docker-compose-scale-test.yml logs -f hyperf-api-1 hyperf-api-
 
 ## Database
 
-### Tables
+### Original Schema (Project Requirements)
+
+The original project specification defined:
 
 **account**
-| Column | Type | Description |
-|--------|------|-------------|
-| id | CHAR(36) | UUID primary key |
-| name | VARCHAR(255) | Account holder name |
-| balance | DECIMAL(15,2) | Available balance |
-| locked | BOOLEAN | Account locked for operation |
-| created_at | TIMESTAMP | Creation date |
-| updated_at | TIMESTAMP | Last update |
+- id: string (uuid)
+- name: string
+- balance: decimal
 
 **account_withdraw**
-| Column | Type | Description |
-|--------|------|-------------|
-| id | CHAR(36) | UUID primary key |
-| account_id | CHAR(36) | FK to account |
-| method | VARCHAR(50) | Withdrawal method (PIX) |
-| amount | DECIMAL(15,2) | Withdrawal amount |
-| scheduled | BOOLEAN | Is scheduled withdrawal |
-| scheduled_for | DATETIME | Scheduled execution time |
-| done | BOOLEAN | Withdrawal completed |
-| error | BOOLEAN | Error occurred |
-| error_reason | TEXT | Error description |
+- id: string (uuid)
+- account_id: string (uuid)
+- method: string
+- amount: decimal
+- scheduled: boolean
+- scheduled_for: datetime
+- done: boolean
+- error: boolean
+- error_reason: string
 
 **account_withdraw_pix**
-| Column | Type | Description |
-|--------|------|-------------|
-| id | CHAR(36) | UUID primary key |
-| account_withdraw_id | CHAR(36) | FK to account_withdraw |
-| type | VARCHAR(50) | PIX key type |
-| key | VARCHAR(77) | PIX key value |
+- account_withdraw_id: string (uuid)
+- type: string
+- key: string
+
+### Implemented Schema (With Additions)
+
+The following columns were added to support production requirements:
+
+**account**
+| Column | Type | Original | Added | Reason |
+|--------|------|:--------:|:-----:|--------|
+| id | CHAR(36) | ✓ | | UUID primary key |
+| name | VARCHAR(255) | ✓ | | Account holder name |
+| balance | DECIMAL(15,2) | ✓ | | Available balance |
+| locked | BOOLEAN | | ✓ | **Race condition protection** - prevents concurrent operations on same account |
+| created_at | TIMESTAMP | | ✓ | Audit trail |
+| updated_at | TIMESTAMP | | ✓ | Audit trail |
+
+**account_withdraw**
+| Column | Type | Original | Added | Reason |
+|--------|------|:--------:|:-----:|--------|
+| id | CHAR(36) | ✓ | | UUID primary key |
+| account_id | CHAR(36) | ✓ | | FK to account |
+| method | VARCHAR(50) | ✓ | | Withdrawal method (PIX) |
+| amount | DECIMAL(15,2) | ✓ | | Withdrawal amount |
+| scheduled | BOOLEAN | ✓ | | Is scheduled withdrawal |
+| scheduled_for | DATETIME | ✓ | | Scheduled execution time |
+| done | BOOLEAN | ✓ | | Withdrawal completed |
+| error | BOOLEAN | ✓ | | Error occurred |
+| error_reason | TEXT | ✓ | | Error description |
+| created_at | TIMESTAMP | | ✓ | Audit trail |
+| updated_at | TIMESTAMP | | ✓ | Audit trail |
+
+**account_withdraw_pix**
+| Column | Type | Original | Added | Reason |
+|--------|------|:--------:|:-----:|--------|
+| id | CHAR(36) | | ✓ | **Primary key** - required by Eloquent ORM |
+| account_withdraw_id | CHAR(36) | ✓ | | FK to account_withdraw |
+| type | VARCHAR(50) | ✓ | | PIX key type |
+| key | VARCHAR(77) | ✓ | | PIX key value (77 chars = BACEN max for email) |
+| created_at | TIMESTAMP | | ✓ | Audit trail |
+| updated_at | TIMESTAMP | | ✓ | Audit trail |
+
+### Why These Additions?
+
+1. **`locked` column (account)** - Essential for handling concurrent withdrawal requests. When multiple requests hit the same account simultaneously, the lock prevents race conditions that could result in negative balances.
+
+2. **`id` column (account_withdraw_pix)** - Eloquent ORM requires a primary key for all models. Added as UUID for consistency.
+
+3. **Timestamps (`created_at`, `updated_at`)** - Standard audit columns for tracking when records were created and modified. Required for debugging and compliance.
 
 ### Test Accounts (Seeded)
 
@@ -433,36 +472,6 @@ docker-compose -f docker-compose-scale-test.yml logs -f hyperf-api-1 hyperf-api-
 | 550e8400-e29b-41d4-a716-446655440001 | João Silva | R$ 1.500,00 |
 | 550e8400-e29b-41d4-a716-446655440002 | Maria Santos | R$ 3.200,50 |
 | 550e8400-e29b-41d4-a716-446655440003 | Pedro Oliveira | R$ 500,00 |
-
----
-
-## Environment Variables
-
-See `.env.example` for all available variables:
-
-```env
-# Application
-APP_NAME=TecnoFit
-APP_ENV=dev
-APP_TIMEZONE=America/Sao_Paulo
-LOG_LEVEL=INFO
-
-# Database
-DB_HOST=mysql
-DB_DATABASE=hyperf
-DB_USERNAME=hyperf
-DB_PASSWORD=hyperf
-
-# Mail (Mailtrap)
-MAIL_HOST=sandbox.smtp.mailtrap.io
-MAIL_PORT=2525
-MAIL_USERNAME=your_username
-MAIL_PASSWORD=your_password
-
-# Scaling
-NGINX_PORT=9501
-SCALE_DB_PORT=3307
-```
 
 ---
 
@@ -484,18 +493,6 @@ SCALE_DB_PORT=3307
 | `NotificationService` | Async email sending via Swoole |
 | `RequestTracingMiddleware` | Correlation IDs, request logging |
 | `AsyncStreamHandler` | Non-blocking log output |
-
----
-
-## Performance Optimizations
-
-| Optimization | Impact |
-|--------------|--------|
-| Async email sending | Response time: 800ms → 60ms |
-| Async logging | Non-blocking I/O |
-| Database row locking | Safe concurrent access |
-| Eager loading | Reduced database queries |
-| Connection pooling | Swoole coroutine-aware |
 
 ---
 
