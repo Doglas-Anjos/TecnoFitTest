@@ -28,7 +28,8 @@ class AccountController extends AbstractController
     {
         $correlationId = RequestTracingMiddleware::getCorrelationId();
 
-        // Validation is automatically handled by WithdrawRequest
+        // Explicitly trigger validation - throws ValidationException if invalid
+        $request->validateResolved();
         $validated = $request->validated();
 
         $this->logger->info('Withdraw request validated', [
