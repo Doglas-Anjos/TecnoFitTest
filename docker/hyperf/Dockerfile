@@ -32,9 +32,9 @@ COPY config/ ./config/
 # Generate optimized autoloader
 RUN composer dump-autoload --optimize --no-dev
 
-# Copy and set up entrypoint script
+# Copy and set up entrypoint script (convert CRLF to LF for Windows compatibility)
 COPY docker/hyperf/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 # Expose Hyperf default port
 EXPOSE 9501
