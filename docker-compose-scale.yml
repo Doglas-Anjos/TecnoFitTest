@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Horizontal Scaling Proof of Concept
 # - Nginx load balancer
 # - 2 API containers (no cron)

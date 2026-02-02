@@ -18,14 +18,26 @@ RUN apk add --no-cache \
 # Install composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Environment variables are passed via docker-compose from .env file:
-# - APP_ENV
-# - SCAN_CACHEABLE
-# - DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
-# - MAIL_HOST, MAIL_PORT
+# Copy composer files first for better layer caching
+COPY composer.json composer.lock ./
+
+# Install dependencies
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
+
+# Copy application code
+COPY app/ ./app/
+COPY bin/ ./bin/
+COPY config/ ./config/
+
+# Generate optimized autoloader
+RUN composer dump-autoload --optimize --no-dev
+
+# Copy and set up entrypoint script
+COPY docker/hyperf/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Expose Hyperf default port
 EXPOSE 9501
 
-# Start Hyperf server
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["php", "bin/hyperf.php", "start"]

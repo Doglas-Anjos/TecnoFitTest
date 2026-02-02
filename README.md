@@ -22,176 +22,77 @@ Built with **Hyperf PHP 3.1**, **MySQL 8**, **Swoole**, and **Nginx** for horizo
 ## Quick Start
 
 ```bash
-# Clone the repository
+# Clone and configure
 git clone <repository-url>
 cd TecnoFit
-
-# Copy environment file
 cp .env.example .env
 
-# Start with test dashboard (single instance)
-docker-compose -f docker-compose-test.yml up -d --build
+# Build and start (using build script)
+./build.sh        # Linux/Mac
+build.bat         # Windows
 
-# Access
-# API: http://localhost:9502
-# Dashboard: http://localhost:3000
-# Mailhog: http://localhost:8026
+# Or manually
+docker compose -f docker-compose-scale.yml build
+docker compose -f docker-compose-scale.yml up -d
 ```
 
----
+## Environments
 
-## Docker Compose Environments
+| File | Description | API Port | Dashboard |
+|------|-------------|----------|-----------|
+| `docker-compose.yml` | Single instance | 9501 | - |
+| `docker-compose-test.yml` | Single + dashboard | 9502 | 3000 |
+| `docker-compose-scale.yml` | Horizontal scaling | 9501 | - |
+| `docker-compose-scale-test.yml` | Scaling + dashboard | 9501 | 3000 |
 
-| File | Description | Use Case |
-|------|-------------|----------|
-| `docker-compose.yml` | Production (single instance) | Simple deployment |
-| `docker-compose-test.yml` | Test with dashboard (single instance) | Development & testing |
-| `docker-compose-scale.yml` | Production (horizontal scaling) | High availability |
-| `docker-compose-scale-test.yml` | Test with dashboard (horizontal scaling) | Load testing |
+```bash
+# Start an environment
+docker compose -f <file> build
+docker compose -f <file> up -d
 
-### Single Instance Architecture
+# Stop (always stop before switching environments)
+docker compose -f <file> down
 
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Client     │────►│   Hyperf     │────►│    MySQL     │
-└──────────────┘     │  API + Cron  │     └──────────────┘
-                     └──────────────┘
-```
+# Stop and reset database
+docker compose -f <file> down -v
 
-### Horizontal Scaling Architecture
-
-```
-                         ┌─────────────────┐
-        Port 9501 ──────►│  Nginx (LB)     │
-                         │  least_conn     │
-                         └────────┬────────┘
-                                  │
-                   ┌──────────────┼──────────────┐
-                   ▼              ▼              │
-             ┌──────────┐   ┌──────────┐         │
-             │ API-1    │   │ API-2    │         │
-             │ CRON=off │   │ CRON=off │         │
-             └────┬─────┘   └────┬─────┘         │
-                  │              │               │
-                  └──────┬───────┘               │
-                         ▼                       │
-                   ┌──────────┐                  │
-                   │  MySQL   │◄─────────────────┤
-                   └──────────┘                  │
-                         ▲                       │
-                         │              ┌────────┴───┐
-                         └──────────────│   Cron     │
-                                        │ CRON=true  │
-                                        └────────────┘
+# View logs
+docker compose -f <file> logs -f
 ```
 
-**Key Points:**
+## Architecture
+
+### Single Instance
+```
+Client ──► Hyperf (API + Cron) ──► MySQL
+```
+
+### Horizontal Scaling
+```
+                    ┌─────────────────┐
+     Port 9501 ────►│  Nginx (LB)     │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              │
+        ┌──────────┐   ┌──────────┐         │
+        │ API-1    │   │ API-2    │         │
+        │ CRON=off │   │ CRON=off │         │
+        └────┬─────┘   └────┬─────┘         │
+             └──────┬───────┘               │
+                    ▼                       │
+              ┌──────────┐                  │
+              │  MySQL   │◄─────────────────┤
+              └──────────┘                  │
+                    ▲              ┌────────┴───┐
+                    └──────────────│   Cron     │
+                                   └────────────┘
+```
+
 - **Nginx** distributes requests using `least_conn` algorithm
 - **API containers** handle HTTP requests only (CRON_ENABLED=false)
-- **Cron container** processes scheduled withdrawals only (not exposed to load balancer)
-- **Single database** ensures data consistency
+- **Cron container** processes scheduled withdrawals only
 - **X-Instance-ID** header shows which instance handled the request
-
----
-
-## Services & Ports
-
-### Single Instance Test (`docker-compose-test.yml`)
-
-| Service | Port | Description |
-|---------|------|-------------|
-| Hyperf API | 9502 | API + Cron |
-| Test Dashboard | 3000 | Web UI for testing |
-| MySQL | 3308 | Database |
-| Mailhog | 8026 | Email UI |
-
-### Horizontal Scaling Test (`docker-compose-scale-test.yml`)
-
-| Service | Port | Description |
-|---------|------|-------------|
-| Nginx (LB) | 9501 | Load balancer |
-| API-1 | (internal) | API instance 1 |
-| API-2 | (internal) | API instance 2 |
-| Cron | (none) | Background jobs |
-| Test Dashboard | 3000 | Web UI for testing |
-| MySQL | 3309 | Database |
-| Mailhog | 8025 | Email UI |
-
----
-
-## Project Structure
-
-```
-TecnoFit/
-├── app/
-│   ├── Controller/
-│   │   ├── AccountController.php         # POST /account/{id}/balance/withdraw
-│   │   └── HealthController.php          # GET /health, /health/ready
-│   ├── DTO/
-│   │   ├── PixDataDTO.php
-│   │   ├── WithdrawRequestDTO.php
-│   │   └── WithdrawResponseDTO.php
-│   ├── Exception/
-│   │   ├── AccountNotFoundException.php   # 404
-│   │   ├── AccountLockedException.php     # 423
-│   │   ├── BusinessException.php          # Base exception
-│   │   ├── InsufficientBalanceException.php # 422
-│   │   ├── InvalidScheduleException.php   # 422
-│   │   └── Handler/
-│   │       ├── AppExceptionHandler.php
-│   │       ├── BusinessExceptionHandler.php
-│   │       ├── NotFoundExceptionHandler.php
-│   │       └── ValidationExceptionHandler.php
-│   ├── Log/
-│   │   ├── AsyncStreamHandler.php         # Non-blocking stdout logging
-│   │   └── AsyncFileHandler.php           # Non-blocking file logging
-│   ├── Middleware/
-│   │   └── RequestTracingMiddleware.php   # Correlation ID, request logging
-│   ├── Model/
-│   │   ├── Account.php
-│   │   ├── AccountWithdraw.php
-│   │   └── AccountWithdrawPix.php
-│   ├── Request/
-│   │   └── WithdrawRequest.php            # Validation rules
-│   ├── Service/
-│   │   ├── Notification/
-│   │   │   ├── MailerFactory.php
-│   │   │   └── NotificationService.php    # Async email sending
-│   │   ├── Pix/
-│   │   │   └── PixKeyValidator.php        # BACEN PIX key validation
-│   │   └── Withdraw/
-│   │       ├── Method/
-│   │       │   ├── AbstractWithdrawMethod.php
-│   │       │   ├── PixWithdrawMethod.php
-│   │       │   ├── WithdrawMethodFactory.php
-│   │       │   └── WithdrawMethodInterface.php
-│   │       └── WithdrawService.php
-│   └── Task/
-│       └── ProcessScheduledWithdrawsTask.php
-├── config/
-│   └── autoload/
-│       ├── logger.php                     # Async logging config
-│       ├── middlewares.php                # Request tracing
-│       └── ...
-├── docker/
-│   ├── hyperf/Dockerfile
-│   ├── mysql/
-│   │   ├── Dockerfile
-│   │   └── init/
-│   │       ├── 01-schema.sql
-│   │       └── 02-seed.sql
-│   ├── nginx/
-│   │   ├── Dockerfile
-│   │   └── nginx.conf                     # Load balancer config
-│   ├── mailhog/Dockerfile
-│   └── test-dashboard/                    # Node.js test UI
-├── docker-compose.yml
-├── docker-compose-test.yml
-├── docker-compose-scale.yml
-├── docker-compose-scale-test.yml
-├── .env.example
-└── README.md
-```
 
 ---
 
@@ -201,20 +102,12 @@ TecnoFit/
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /health` | Basic health check (service running) |
+| `GET /health` | Basic health check |
 | `GET /health/ready` | Deep health check (includes database) |
-
-**Response Headers:**
-```
-X-Correlation-ID: uuid    # Request tracing
-X-Instance-ID: api-1      # Which instance handled request
-```
 
 ### Withdraw
 
 **POST** `/account/{accountId}/balance/withdraw`
-
-#### Request Body
 
 ```json
 {
@@ -235,39 +128,6 @@ X-Instance-ID: api-1      # Which instance handled request
 | pix.key | string | Yes | PIX key value |
 | amount | decimal | Yes | Amount to withdraw (> 0) |
 | schedule | datetime/null | No | Schedule for future (null = immediate) |
-
-#### PIX Key Validation (BACEN Specification)
-
-| Type | Max Length | Format | Status |
-|------|------------|--------|--------|
-| email | 77 chars | Valid email | ✅ Implemented |
-| cpf | 11 digits | Numbers only | ⏳ Not implemented |
-| cnpj | 14 digits | Numbers only | ⏳ Not implemented |
-| phone | 14 chars | +5511999999999 | ⏳ Not implemented |
-| random | 36 chars | UUID v4 | ⏳ Not implemented |
-
-#### Success Response (200)
-
-```json
-{
-  "success": true,
-  "message": "Saque realizado com sucesso",
-  "data": {
-    "id": "uuid",
-    "account_id": "uuid",
-    "method": "PIX",
-    "amount": 150.75,
-    "scheduled": false,
-    "scheduled_for": null,
-    "done": true,
-    "pix": {
-      "type": "email",
-      "key": "user@email.com"
-    },
-    "created_at": "2026-01-30 03:38:22"
-  }
-}
-```
 
 #### Error Responses
 
@@ -291,208 +151,73 @@ X-Instance-ID: api-1      # Which instance handled request
 
 ---
 
-## Test Dashboard
+## Database Schema
 
-The test dashboard provides a web UI for testing the API:
-
-- **Edge Case Tests** - Pre-defined scenarios (success, insufficient balance, etc.)
-- **Stress Test** - Configurable concurrent requests
-- **Request/Response Viewer** - See full API responses
-- **Database Auto-Population** - Creates test accounts on startup
-
-Access at: `http://localhost:3000`
-
----
-
-## Observability
-
-### Logging
-
-Async logging using Swoole coroutines (non-blocking):
-
-```env
-LOG_LEVEL=INFO              # DEBUG, INFO, WARNING, ERROR
-LOG_FILE_ENABLED=false      # Enable JSON file logging
-```
-
-**Log Output:**
-```
-[15:30:00] INFO: Request received {"cid":"abc-123","method":"POST","path":"/account/.../withdraw"}
-[15:30:00] INFO: Withdraw request validated {"correlation_id":"abc-123","account_id":"..."}
-[15:30:00] INFO: Withdrawal record created {"withdraw_id":"...","amount":100}
-[15:30:00] INFO: Response {"cid":"abc-123","status":200,"ms":85}
-```
-
-### Request Tracing
-
-Every request receives a correlation ID for tracing:
-
-```bash
-# Pass your own correlation ID
-curl -H "X-Correlation-ID: my-trace-id" http://localhost:9501/health
-
-# Response includes the ID
-# X-Correlation-ID: my-trace-id
-# X-Instance-ID: api-1
-```
-
----
-
-## Commands
-
-### Start Environments
-
-```bash
-# Single instance with test dashboard
-docker-compose -f docker-compose-test.yml up -d --build
-
-# Horizontal scaling with test dashboard
-docker-compose -f docker-compose-scale-test.yml up -d --build
-
-# Production (single instance)
-docker-compose up -d --build
-
-# Production (horizontal scaling)
-docker-compose -f docker-compose-scale.yml up -d --build
-```
-
-### View Logs
-
-```bash
-# All containers
-docker-compose -f docker-compose-scale-test.yml logs -f
-
-# Specific containers
-docker-compose -f docker-compose-scale-test.yml logs -f hyperf-api-1 hyperf-api-2
-
-# Cron container
-docker-compose -f docker-compose-scale-test.yml logs -f hyperf-cron
-```
-
-### Stop & Cleanup
-
-```bash
-# Stop containers
-docker-compose -f docker-compose-scale-test.yml down
-
-# Stop and remove volumes (reset database)
-docker-compose -f docker-compose-scale-test.yml down -v
-```
-
-### Test Load Balancing
-
-```bash
-# Run multiple times - check X-Instance-ID header
-curl -i http://localhost:9501/health
-
-# Or watch logs while using test dashboard stress test
-docker-compose -f docker-compose-scale-test.yml logs -f hyperf-api-1 hyperf-api-2
-```
-
----
-
-## Database
-
-### Original Schema (Project Requirements)
-
-The original project specification defined:
+### Tables
 
 **account**
-- id: string (uuid)
-- name: string
-- balance: decimal
+| Column | Type | Description |
+|--------|------|-------------|
+| id | CHAR(36) | UUID primary key |
+| name | VARCHAR(255) | Account holder name |
+| balance | DECIMAL(15,2) | Available balance |
+| locked | BOOLEAN | Race condition protection |
+| created_at, updated_at | TIMESTAMP | Audit trail |
 
 **account_withdraw**
-- id: string (uuid)
-- account_id: string (uuid)
-- method: string
-- amount: decimal
-- scheduled: boolean
-- scheduled_for: datetime
-- done: boolean
-- error: boolean
-- error_reason: string
+| Column | Type | Description |
+|--------|------|-------------|
+| id | CHAR(36) | UUID primary key |
+| account_id | CHAR(36) | FK to account |
+| method | VARCHAR(50) | Withdrawal method (PIX) |
+| amount | DECIMAL(15,2) | Withdrawal amount |
+| scheduled | BOOLEAN | Is scheduled withdrawal |
+| scheduled_for | DATETIME | Scheduled execution time |
+| done | BOOLEAN | Withdrawal completed |
+| error | BOOLEAN | Error occurred |
+| error_reason | TEXT | Error description |
 
 **account_withdraw_pix**
-- account_withdraw_id: string (uuid)
-- type: string
-- key: string
-
-### Implemented Schema (With Additions)
-
-The following columns were added to support production requirements:
-
-**account**
-| Column | Type | Original | Added | Reason |
-|--------|------|:--------:|:-----:|--------|
-| id | CHAR(36) | ✓ | | UUID primary key |
-| name | VARCHAR(255) | ✓ | | Account holder name |
-| balance | DECIMAL(15,2) | ✓ | | Available balance |
-| locked | BOOLEAN | | ✓ | **Race condition protection** - prevents concurrent operations on same account |
-| created_at | TIMESTAMP | | ✓ | Audit trail |
-| updated_at | TIMESTAMP | | ✓ | Audit trail |
-
-**account_withdraw**
-| Column | Type | Original | Added | Reason |
-|--------|------|:--------:|:-----:|--------|
-| id | CHAR(36) | ✓ | | UUID primary key |
-| account_id | CHAR(36) | ✓ | | FK to account |
-| method | VARCHAR(50) | ✓ | | Withdrawal method (PIX) |
-| amount | DECIMAL(15,2) | ✓ | | Withdrawal amount |
-| scheduled | BOOLEAN | ✓ | | Is scheduled withdrawal |
-| scheduled_for | DATETIME | ✓ | | Scheduled execution time |
-| done | BOOLEAN | ✓ | | Withdrawal completed |
-| error | BOOLEAN | ✓ | | Error occurred |
-| error_reason | TEXT | ✓ | | Error description |
-| created_at | TIMESTAMP | | ✓ | Audit trail |
-| updated_at | TIMESTAMP | | ✓ | Audit trail |
-
-**account_withdraw_pix**
-| Column | Type | Original | Added | Reason |
-|--------|------|:--------:|:-----:|--------|
-| id | CHAR(36) | | ✓ | **Primary key** - required by Eloquent ORM |
-| account_withdraw_id | CHAR(36) | ✓ | | FK to account_withdraw |
-| type | VARCHAR(50) | ✓ | | PIX key type |
-| key | VARCHAR(77) | ✓ | | PIX key value (77 chars = BACEN max for email) |
-| created_at | TIMESTAMP | | ✓ | Audit trail |
-| updated_at | TIMESTAMP | | ✓ | Audit trail |
-
-### Why These Additions?
-
-1. **`locked` column (account)** - Essential for handling concurrent withdrawal requests. When multiple requests hit the same account simultaneously, the lock prevents race conditions that could result in negative balances.
-
-2. **`id` column (account_withdraw_pix)** - Eloquent ORM requires a primary key for all models. Added as UUID for consistency.
-
-3. **Timestamps (`created_at`, `updated_at`)** - Standard audit columns for tracking when records were created and modified. Required for debugging and compliance.
+| Column | Type | Description |
+|--------|------|-------------|
+| id | CHAR(36) | UUID primary key |
+| account_withdraw_id | CHAR(36) | FK to account_withdraw |
+| type | VARCHAR(50) | PIX key type |
+| key | VARCHAR(77) | PIX key value |
 
 ### Test Accounts (Seeded)
 
 | ID | Name | Balance |
 |----|------|---------|
-| 550e8400-e29b-41d4-a716-446655440001 | João Silva | R$ 1.500,00 |
+| 550e8400-e29b-41d4-a716-446655440001 | Joao Silva | R$ 1.500,00 |
 | 550e8400-e29b-41d4-a716-446655440002 | Maria Santos | R$ 3.200,50 |
 | 550e8400-e29b-41d4-a716-446655440003 | Pedro Oliveira | R$ 500,00 |
 
 ---
 
-## Architecture
+## Project Structure
 
-### Design Patterns
-
-- **Strategy Pattern** - Withdrawal methods (PIX, future TED, Boleto)
-- **Factory Pattern** - WithdrawMethodFactory, MailerFactory
-- **DTO Pattern** - Request/Response data transfer objects
-- **Service Layer** - Business logic separation
-
-### Key Components
-
-| Component | Responsibility |
-|-----------|----------------|
-| `WithdrawService` | Main business logic, transactions |
-| `PixKeyValidator` | BACEN-compliant PIX key validation |
-| `NotificationService` | Async email sending via Swoole |
-| `RequestTracingMiddleware` | Correlation IDs, request logging |
-| `AsyncStreamHandler` | Non-blocking log output |
+```
+TecnoFit/
+├── app/
+│   ├── Controller/          # API endpoints
+│   ├── DTO/                  # Data transfer objects
+│   ├── Exception/            # Custom exceptions & handlers
+│   ├── Log/                  # Async logging handlers
+│   ├── Middleware/           # Request tracing
+│   ├── Model/                # Eloquent models
+│   ├── Request/              # Validation rules
+│   ├── Service/              # Business logic
+│   └── Task/                 # Cron tasks
+├── config/                   # Hyperf configuration
+├── docker/                   # Docker files
+│   ├── hyperf/               # PHP container
+│   ├── mysql/                # Database + seeds
+│   ├── nginx/                # Load balancer
+│   └── test-dashboard/       # Test UI
+├── build.sh / build.bat      # Build scripts
+└── docker-compose*.yml       # Environment configs
+```
 
 ---
 

@@ -3,3 +3,4 @@
 !bin/
 !config/
 !composer.*
+!docker/hyperf/entrypoint.sh

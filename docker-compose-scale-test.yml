@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Horizontal Scaling Test Environment
 # - Nginx load balancer
 # - 2 API containers (no cron)
