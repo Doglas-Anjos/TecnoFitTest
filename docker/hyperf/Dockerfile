@@ -32,9 +32,14 @@ COPY config/ ./config/
 # Generate optimized autoloader
 RUN composer dump-autoload --optimize --no-dev
 
-# Copy and set up entrypoint script (convert CRLF to LF for Windows compatibility)
-COPY docker/hyperf/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
+# Create entrypoint script directly (avoids Windows CRLF issues)
+RUN printf '#!/bin/sh\n\
+set -e\n\
+if [ ! -f "/data/project/vendor/autoload.php" ]; then\n\
+    echo "Installing Composer dependencies..."\n\
+    composer install --no-interaction --prefer-dist\n\
+fi\n\
+exec "$@"\n' > /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 # Expose Hyperf default port
 EXPOSE 9501
